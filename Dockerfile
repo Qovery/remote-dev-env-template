@@ -1,0 +1,145 @@
+# Builder Workspace — All-in-One
+# VS Code (code-server) + Claude Code + OpenCode + RTK + GitHub CLI + Qovery CLI
+# + Node.js + Python + Git + Live Preview
+#
+# Non-tech builders: open the workspace URL → VS Code loads with Claude Code
+# in the sidebar → describe what to build → preview results inline.
+# Tech builders: open the terminal → run `opencode` or `claude`.
+# RTK auto-compresses shell output to reduce LLM token consumption by 60-90%.
+#
+# Set GIT_REPO_URL + GIT_TOKEN to auto-clone a project on startup.
+FROM codercom/code-server:4.118.0
+
+USER root
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl git jq make python3 python3-pip python3-venv unzip xz-utils \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 22 LTS
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# GitHub CLI (pinned + checksum verified)
+ARG GH_VERSION=2.74.1
+ARG GH_SHA256=d62406233a42e0dc577dcead8d7bafabcc4c548d9c3a6da761c6709bc8f4b373
+RUN cd /tmp \
+    && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" -o gh.tar.gz \
+    && echo "${GH_SHA256}  gh.tar.gz" | sha256sum -c - \
+    && tar -xzf gh.tar.gz \
+    && install "gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh \
+    && rm -rf gh.tar.gz "gh_${GH_VERSION}_linux_amd64"
+
+# Qovery CLI
+RUN curl -s https://get.qovery.com | bash
+
+# Claude Code (pinned version — also available as VS Code extension below)
+ARG CLAUDE_CODE_VERSION=2.1.129
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
+
+# OpenCode (AI coding agent — VS Code extension auto-installs on first `opencode` run in terminal)
+RUN npm install -g opencode-ai
+
+# RTK — reduces LLM token consumption by 60-90% on shell commands
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh \
+    && ln -sf /root/.local/bin/rtk /usr/local/bin/rtk
+
+# Configure code-server to use Microsoft VS Code Marketplace
+# (required for Claude Code extension, GitHub Copilot, Live Preview, etc.)
+# To revert to Open VSX, remove this ENV line.
+ENV EXTENSIONS_GALLERY='{"serviceUrl":"https://marketplace.visualstudio.com/_apis/public/gallery","itemUrl":"https://marketplace.visualstudio.com/items","cacheUrl":"https://vscode.blob.core.windows.net/gallery/index","controlUrl":"","recommendationsUrl":""}'
+
+# VS Code extensions (from Microsoft Marketplace)
+# Use --user-data-dir to ensure extensions install into coder's data directory
+RUN code-server --user-data-dir /home/coder/.local/share/code-server \
+      --install-extension anthropic.claude-code 2>/dev/null || true \
+    && code-server --user-data-dir /home/coder/.local/share/code-server \
+      --install-extension github.copilot 2>/dev/null || true \
+    && code-server --user-data-dir /home/coder/.local/share/code-server \
+      --install-extension ms-vscode.live-server 2>/dev/null || true \
+    && code-server --user-data-dir /home/coder/.local/share/code-server \
+      --install-extension ms-python.python 2>/dev/null || true \
+    && code-server --user-data-dir /home/coder/.local/share/code-server \
+      --install-extension bradlc.vscode-tailwindcss 2>/dev/null || true \
+    && code-server --user-data-dir /home/coder/.local/share/code-server \
+      --install-extension esbenp.prettier-vscode 2>/dev/null || true
+
+# Builder Startup extension — auto-opens Claude sidebar + Simple Browser preview
+# Must use correct directory naming ({publisher}.{name}-{version}) and register in extensions.json
+COPY builder-startup-extension /tmp/builder-startup-extension
+RUN mkdir -p /home/coder/.local/share/code-server/extensions/qovery.builder-startup-0.0.1 \
+    && cp /tmp/builder-startup-extension/package.json \
+          /tmp/builder-startup-extension/extension.js \
+          /home/coder/.local/share/code-server/extensions/qovery.builder-startup-0.0.1/ \
+    && rm -rf /tmp/builder-startup-extension \
+    && jq '. += [{"identifier":{"id":"qovery.builder-startup"},"version":"0.0.1","location":{"$mid":1,"path":"/home/coder/.local/share/code-server/extensions/qovery.builder-startup-0.0.1","scheme":"file"},"relativeLocation":"qovery.builder-startup-0.0.1"}]' \
+       /home/coder/.local/share/code-server/extensions/extensions.json > /tmp/ext.json \
+    && mv /tmp/ext.json /home/coder/.local/share/code-server/extensions/extensions.json
+
+# Disable code-server's custom Getting Started page
+ENV CS_DISABLE_GETTING_STARTED_OVERRIDE=1
+
+# Configure code-server (no auth — Qovery handles access control)
+RUN mkdir -p /home/coder/.config/code-server \
+    && printf 'bind-addr: 0.0.0.0:8080\nauth: none\ncert: false\napp-name: Builder Workspace\n' \
+       > /home/coder/.config/code-server/config.yaml
+
+# Pre-configure VS Code settings for a clean, dark, non-tech-friendly experience
+RUN mkdir -p /home/coder/.local/share/code-server/User \
+    && cat > /home/coder/.local/share/code-server/User/settings.json << 'SETTINGS'
+{
+  "workbench.startupEditor": "none",
+  "workbench.tips.enabled": false,
+  "workbench.welcomePage.walkthroughs.openOnInstall": false,
+  "workbench.colorTheme": "Default Dark Modern",
+  "workbench.activityBar.visible": false,
+  "workbench.editor.showTabs": "none",
+  "workbench.statusBar.visible": true,
+  "editor.fontSize": 14,
+  "editor.wordWrap": "on",
+  "editor.minimap.enabled": false,
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.fontSize": 14,
+  "extensions.autoUpdate": false,
+  "telemetry.telemetryLevel": "off",
+  "task.allowAutomaticTasks": "on",
+  "livePreview.portNumber": 3100,
+  "livePreview.openPreviewTarget": "internalBrowser",
+  "remote.autoForwardPorts": true,
+  "remote.autoForwardPortsSource": "process",
+  "claudeCode.preferredLocation": "sidebar"
+}
+SETTINGS
+
+# ── Switch to coder user for all user-space installations ──────────────
+# Fix ownership first: steps above created dirs under /home/coder as root
+RUN chown -R coder:coder /home/coder
+USER coder
+
+# Pre-create skill directories (must exist before the skill installer runs)
+RUN mkdir -p /home/coder/.config/opencode/skills \
+    /home/coder/.config/opencode/commands \
+    /home/coder/.claude/skills
+
+# Qovery Skills — installed as coder so OpenCode and Claude Code can discover them
+RUN curl -fsSL https://skill.qovery.com/install.sh | bash
+
+# Initialize RTK hooks for Claude Code and OpenCode (auto-rewrite shell commands)
+RUN rtk init -g 2>/dev/null || true \
+    && rtk init -g --opencode 2>/dev/null || true
+
+# ── Entrypoint: clone git repo (if configured), install deps, start code-server
+USER root
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+    && chown -R coder:coder /home/coder
+
+USER coder
+WORKDIR /home/coder/project
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
