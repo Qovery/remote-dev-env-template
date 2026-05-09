@@ -8,6 +8,7 @@
 # RTK auto-compresses shell output to reduce LLM token consumption by 60-90%.
 #
 # Set GIT_REPO_URL + GIT_TOKEN to auto-clone a project on startup.
+# Set ANTHROPIC_API_KEY so Claude Code can authenticate automatically.
 FROM codercom/code-server:4.118.0
 
 USER root
@@ -110,7 +111,8 @@ RUN mkdir -p /home/coder/.local/share/code-server/User \
   "livePreview.openPreviewTarget": "internalBrowser",
   "remote.autoForwardPorts": true,
   "remote.autoForwardPortsSource": "process",
-  "claudeCode.preferredLocation": "sidebar"
+  "claudeCode.preferredLocation": "sidebar",
+  "claudeCode.hideOnboarding": true
 }
 SETTINGS
 
