@@ -26,11 +26,11 @@ async function activate(context) {
 }
 
 async function openClaudeSidebar() {
-  // Try the dedicated Claude Code command first (anthropic.claude-code extension)
+  // Target the primary sidebar view container (the sparkle icon in the activity bar)
   const commands = [
-    "claude-vscode.sidebar.open",
     "workbench.view.extension.claude-sidebar",
     "claudeVSCodeSidebar.focus",
+    "claude-vscode.sidebar.open",
   ];
 
   for (const cmd of commands) {
