@@ -96,7 +96,6 @@ RUN mkdir -p /home/coder/.local/share/code-server/User \
   "workbench.tips.enabled": false,
   "workbench.welcomePage.walkthroughs.openOnInstall": false,
   "workbench.colorTheme": "Default Dark Modern",
-  "workbench.activityBar.visible": false,
   "workbench.editor.showTabs": "none",
   "workbench.statusBar.visible": true,
   "editor.fontSize": 14,
