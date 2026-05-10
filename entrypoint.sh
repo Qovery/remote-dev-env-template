@@ -13,6 +13,9 @@ set -e
 
 PROJECT_DIR="/home/coder/project"
 
+# ── Clear stale workspace state to prevent webview deserialization crashes ────
+rm -rf /home/coder/.local/share/code-server/User/workspaceStorage/*/state.vscdb 2>/dev/null
+
 # ── Detect git provider from URL and return the correct credential username ──
 detect_git_username() {
   local url="$1"
