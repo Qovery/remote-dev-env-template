@@ -25,6 +25,8 @@ if [[ "$(id -u)" -eq 0 ]]; then
            /home/coder/project
   chown -R coder:coder /home/coder
   # Re-execute this script as coder, preserving all env vars (-p)
+  # Set HOME explicitly — su -p preserves the root HOME otherwise
+  export HOME=/home/coder
   exec su -p -s /bin/bash coder -- "$0" "$@"
 fi
 
