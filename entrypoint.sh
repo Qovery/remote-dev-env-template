@@ -10,6 +10,7 @@
 #   GIT_USER_NAME   — Git author name for commits
 #   GIT_USER_EMAIL  — Git author email for commits
 #   DEV_PORT        — Port for the auto-started dev server (default: 3100)
+#   DISABLE_CODE_SERVER — Set to "true" to skip code-server and serve an RDE welcome page instead
 set -e
 
 PROJECT_DIR="/home/coder/project"
@@ -447,6 +448,7 @@ detect_and_start_devserver() {
   nohup bash -c "$dev_cmd" > /tmp/devserver.log 2>&1 &
   local pid=$!
   echo "$pid" > /tmp/devserver.pid
+  echo "$app_type" > /tmp/devserver.type
   echo "Dev server started (PID: $pid, log: /tmp/devserver.log)"
 }
 
@@ -540,6 +542,163 @@ ensure_gitignore() {
 
 ensure_gitignore
 
-# ── Start code-server ────────────────────────────────────────────────────────
-echo "Starting Builder Workspace..."
-exec code-server --host 0.0.0.0 --port 8080 "$PROJECT_DIR"
+# ── RDE welcome page (served when code-server is disabled) ───────────────────
+start_welcome_server() {
+  local rde_dir="/tmp/rde-welcome"
+  mkdir -p "$rde_dir"
+
+  # Read dev server metadata (written by detect_and_start_devserver)
+  local ds_type="" ds_pid="" ds_status="" ds_status_color=""
+  if [[ -f /tmp/devserver.type ]]; then
+    ds_type=$(cat /tmp/devserver.type)
+  fi
+  if [[ -f /tmp/devserver.pid ]]; then
+    ds_pid=$(cat /tmp/devserver.pid)
+    if kill -0 "$ds_pid" 2>/dev/null; then
+      ds_status="Running (PID $ds_pid)"
+      ds_status_color="#4ade80"
+    else
+      ds_status="Exited (PID $ds_pid)"
+      ds_status_color="#f87171"
+    fi
+  fi
+
+  cat > "$rde_dir/index.html" << 'WELCOMEPAGE'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qovery RDE</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0f0f11;
+    color: #e4e4e7;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container {
+    text-align: center;
+    max-width: 480px;
+    padding: 2rem;
+  }
+  .logo { width: 96px; height: 96px; margin-bottom: 2rem; }
+  h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: #ffffff;
+    margin-bottom: 0.5rem;
+  }
+  .subtitle {
+    font-size: 0.95rem;
+    color: #a1a1aa;
+    margin-bottom: 2.5rem;
+  }
+  .card {
+    background: #18181b;
+    border: 1px solid #27272a;
+    border-radius: 12px;
+    padding: 1.5rem;
+    text-align: left;
+  }
+  .card-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #7366FF;
+    margin-bottom: 1rem;
+  }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #27272a;
+    font-size: 0.875rem;
+  }
+  .row:last-child { border-bottom: none; }
+  .label { color: #a1a1aa; }
+  .value { color: #e4e4e7; font-weight: 500; }
+  .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    position: relative;
+    top: -1px;
+  }
+  .no-server {
+    color: #71717a;
+    font-size: 0.875rem;
+    padding: 0.75rem 0;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <svg class="logo" viewBox="0 0 329 328" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M275.398 182.797L264.772 249.633L327.984 273.877L327.974 213.146L275.398 182.797Z" fill="#A299FF"/>
+    <path d="M0 243.506V84.4956L52.6015 101.175V213.136L137.708 262.271L144.067 286.511L137.708 323.008L0 243.506Z" fill="#7366FF"/>
+    <path d="M137.721 65.7373L52.6017 114.863L0.000244141 84.4957L137.69 5L275.398 84.4957L246.344 107.644L222.828 114.872L137.721 65.7373Z" fill="#7366FF"/>
+    <path d="M328 273.854L275.398 304.243L222.828 273.854V213.139L328 273.854Z" fill="#5219FF"/>
+    <path d="M137.721 103.424L137.69 164.145L190.307 194.503L190.298 133.772L137.721 103.424Z" fill="#A299FF"/>
+    <path d="M137.69 164.146L85.1072 194.503L137.699 224.877L190.307 194.503L137.69 164.146Z" fill="#5219FF"/>
+    <path d="M137.721 103.424L85.1135 133.797L85.1072 194.503L137.69 164.145L137.721 103.424Z" fill="#7366FF"/>
+    <path d="M275.398 84.4956V182.797L222.828 213.139V114.872L275.398 84.4956Z" fill="url(#p0)"/>
+    <path d="M275.414 182.766L137.708 262.271V323.008L275.398 243.497L275.414 182.766Z" fill="url(#p1)"/>
+    <defs>
+      <linearGradient id="p0" x1="249.114" y1="84.4953" x2="249.114" y2="213.14" gradientUnits="userSpaceOnUse">
+        <stop offset="0.25" stop-color="#7366FF"/><stop offset="1" stop-color="#5219FF"/>
+      </linearGradient>
+      <linearGradient id="p1" x1="137.707" y1="252.888" x2="275.413" y2="252.888" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#7366FF"/><stop offset="1" stop-color="#A299FF"/>
+      </linearGradient>
+    </defs>
+  </svg>
+  <h1>Welcome to your RDE</h1>
+  <p class="subtitle">Your Remote Development Environment is running</p>
+  <div class="card">
+    <div class="card-title">Dev Server</div>
+WELCOMEPAGE
+
+  # Inject dynamic dev server status into the HTML
+  if [[ -n "$ds_type" ]]; then
+    cat >> "$rde_dir/index.html" << DEVINFO
+    <div class="row"><span class="label">Type</span><span class="value">${ds_type}</span></div>
+    <div class="row"><span class="label">Port</span><span class="value">${DEV_PORT}</span></div>
+    <div class="row"><span class="label">Status</span><span class="value"><span class="status-dot" style="background:${ds_status_color}"></span>${ds_status}</span></div>
+    <div class="row"><span class="label">Log</span><span class="value">/tmp/devserver.log</span></div>
+DEVINFO
+  else
+    cat >> "$rde_dir/index.html" << 'NODEV'
+    <p class="no-server">No dev server detected for this project.</p>
+NODEV
+  fi
+
+  # Close the HTML
+  cat >> "$rde_dir/index.html" << 'ENDHTML'
+  </div>
+</div>
+</body>
+</html>
+ENDHTML
+
+  echo "Code-server disabled (DISABLE_CODE_SERVER=true)."
+  echo "Serving RDE welcome page on port 8080..."
+  cd "$rde_dir"
+  exec python3 -m http.server 8080 --bind 0.0.0.0
+}
+
+# ── Start code-server (or RDE welcome page in headless mode) ─────────────────
+if [[ "${DISABLE_CODE_SERVER:-}" == "true" ]]; then
+  start_welcome_server
+else
+  echo "Starting Builder Workspace..."
+  exec code-server --host 0.0.0.0 --port 8080 "$PROJECT_DIR"
+fi
