@@ -12,6 +12,7 @@
 #   DEV_PORT        — Port for the auto-started dev server (default: 3100)
 #   OPENCODE_PORT   — Port for the OpenCode web UI (default: 9100)
 #   DISABLE_CODE_SERVER — Set to "true" to skip code-server and serve an RDE welcome page instead
+#   OPENAI_API_KEY  — API key for Codex (OpenAI's AI coding agent)
 set -e
 
 PROJECT_DIR="/home/coder/project"

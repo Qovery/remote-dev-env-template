@@ -1,6 +1,6 @@
 # Remote Dev Environment Template
 
-A Docker template for [Qovery Remote Development Environments](https://www.qovery.com/docs/rde/overview) -- browser-based VS Code with built-in AI coding assistants (Claude Code and OpenCode), pre-installed language runtimes, and automatic framework detection.
+A Docker template for [Qovery Remote Development Environments](https://www.qovery.com/docs/rde/overview) -- browser-based VS Code with built-in AI coding assistants (Claude Code, OpenCode, and Codex), pre-installed language runtimes, and automatic framework detection.
 
 Designed so that any team member -- technical or not -- can spin up an isolated cloud workspace, describe what they want to build in plain English, and have an AI assistant create, run, and preview the application.
 
@@ -32,12 +32,21 @@ Browser
 
 - **Claude Code** -- integrated in the VS Code sidebar
 - **OpenCode** -- web UI on port 9100
+- **Codex** -- OpenAI's AI coding agent CLI
 - **RTK** -- token compression tool that reduces LLM token consumption by 60-90% on shell output
 
 ### CLI Tools
 
 - **GitHub CLI** (gh)
 - **Qovery CLI**
+
+### Developer Tools
+
+- **ripgrep** (rg) -- fast recursive search
+- **fzf** -- fuzzy file finder
+- **htop** -- interactive process viewer
+- **wget** -- HTTP file downloader
+- **tree** -- directory tree visualization
 
 ### VS Code Extensions
 
@@ -78,6 +87,7 @@ docker build -t remote-dev-env .
 ```bash
 docker run -p 8080:8080 -p 3100:3100 -p 9100:9100 \
   -e ANTHROPIC_API_KEY=your-key \
+  -e OPENAI_API_KEY=your-key \
   remote-dev-env
 ```
 
@@ -88,6 +98,7 @@ Open `http://localhost:8080` to access VS Code in the browser.
 ```bash
 docker run -p 8080:8080 -p 3100:3100 -p 9100:9100 \
   -e ANTHROPIC_API_KEY=your-key \
+  -e OPENAI_API_KEY=your-key \
   -e GIT_REPO_URL=https://github.com/your-org/your-repo.git \
   -e GIT_TOKEN=your-git-token \
   -e GIT_BRANCH=main \
@@ -112,6 +123,7 @@ This template is designed to be used as a **blueprint** in the [Qovery RDE Porta
 | `OPENCODE_PORT` | Port for the OpenCode web UI | `9100` |
 | `DISABLE_CODE_SERVER` | Skip code-server and serve a static welcome page instead | `false` |
 | `ANTHROPIC_API_KEY` | API key for Claude Code | -- |
+| `OPENAI_API_KEY` | API key for Codex | -- |
 
 ## How It Works
 

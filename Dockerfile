@@ -1,32 +1,34 @@
 # Builder Workspace — All-in-One
-# VS Code (code-server) + Claude Code + OpenCode + RTK + GitHub CLI + Qovery CLI
-# + Node.js + Python + Git + Live Preview
+# VS Code (code-server) + Claude Code + OpenCode + Codex + RTK
+# + GitHub CLI + Qovery CLI + Node.js + Python + Git + Live Preview
 #
 # Non-tech builders: open the workspace URL → VS Code loads with Claude Code
 # in the sidebar → describe what to build → preview results inline.
-# Tech builders: open the terminal → run `opencode` or `claude`.
+# Tech builders: open the terminal → run `opencode`, `claude`, or `codex`.
 # RTK auto-compresses shell output to reduce LLM token consumption by 60-90%.
 #
 # Set GIT_REPO_URL + GIT_TOKEN to auto-clone a project on startup.
 # Set ANTHROPIC_API_KEY so Claude Code can authenticate automatically.
+# Set OPENAI_API_KEY so Codex can authenticate automatically.
 FROM codercom/code-server:4.118.0
 
 USER root
 
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl git jq make python3 python3-pip python3-venv unzip xz-utils \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# Node.js 22 LTS (must run before the main apt-get so the NodeSource repo is available)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 
-# Node.js 22 LTS
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# Ruby + Bundler (for Rails projects)
+# System dependencies + language runtimes + developer tools (single layer)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Core utilities
+    curl git jq make unzip xz-utils ca-certificates wget tree htop \
+    # Python
+    python3 python3-pip python3-venv \
+    # Ruby + native extension build tools
     ruby ruby-dev build-essential \
+    # Node.js (from NodeSource repo above)
+    nodejs \
+    # Search & navigation
+    ripgrep fzf \
     && gem install bundler --no-document \
     && rm -rf /var/lib/apt/lists/*
 
@@ -50,12 +52,13 @@ RUN cd /tmp \
 # Qovery CLI
 RUN curl -s https://get.qovery.com | bash
 
-# Claude Code (pinned version — also available as VS Code extension below)
+# AI coding agents (single layer + cache cleanup)
 ARG CLAUDE_CODE_VERSION=2.1.129
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
-
-# OpenCode (AI coding agent — VS Code extension auto-installs on first `opencode` run in terminal)
-RUN npm install -g opencode-ai
+RUN npm install -g \
+    @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
+    opencode-ai \
+    @openai/codex \
+    && npm cache clean --force
 
 # RTK — reduces LLM token consumption by 60-90% on shell commands
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh \
@@ -139,7 +142,7 @@ RUN mkdir -p /home/coder/.local/share/code-server/User \
 SETTINGS
 
 # ── Switch to coder user for all user-space installations ──────────────
-# Fix ownership first: steps above created dirs under /home/coder as root
+# Fix ownership: steps above created dirs under /home/coder as root
 RUN chown -R coder:coder /home/coder
 USER coder
 
@@ -160,8 +163,7 @@ RUN rtk init -g 2>/dev/null || true \
 # is mounted at /home (the entrypoint drops to the coder user after fixing).
 USER root
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && chown -R coder:coder /home/coder
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 WORKDIR /home/coder/project
 
