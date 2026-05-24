@@ -43,6 +43,13 @@ if [[ "$(id -u)" -eq 0 ]]; then
            /home/coder/.config/code-server \
            /home/coder/.config/opencode \
            /home/coder/project
+
+  # Regenerate code-server config if wiped by volume mount (no auth — Qovery handles access control)
+  if [[ ! -f /home/coder/.config/code-server/config.yaml ]]; then
+    printf 'bind-addr: 0.0.0.0:8080\nauth: none\ncert: false\napp-name: Builder Workspace\n' \
+      > /home/coder/.config/code-server/config.yaml
+  fi
+
   chown -R coder:coder /home/coder
   # Re-execute this script as coder, preserving all env vars (-p)
   # Set HOME explicitly — su -p preserves the root HOME otherwise
