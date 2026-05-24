@@ -124,6 +124,7 @@ This template is designed to be used as a **blueprint** in the [Qovery RDE Porta
 | `DISABLE_CODE_SERVER` | Skip code-server and serve a static welcome page instead | `false` |
 | `ANTHROPIC_API_KEY` | API key for Claude Code | -- |
 | `OPENAI_API_KEY` | API key for Codex | -- |
+| `PRE_START_SCRIPT` | Shell script to run before the main process starts (runs inline; use `&` for long-running commands) | -- |
 
 ## How It Works
 
@@ -134,8 +135,9 @@ The `entrypoint.sh` orchestrates the full startup sequence:
 3. **Repository clone** -- clones (or pulls on restart) the repo specified by `GIT_REPO_URL`
 4. **Dependency installation** -- runs `npm install`, `pip install`, `bundle install`, or `go mod download` based on what's detected
 5. **AI skill setup** -- copies Claude Code instructions (`CLAUDE.md`) and OpenCode skill files into the workspace
-6. **Dev server startup** -- detects the framework and starts the appropriate dev server on `DEV_PORT`
-7. **code-server launch** -- starts the browser-based VS Code on port 8080
+6. **Pre-start script** -- runs the optional `PRE_START_SCRIPT` if set (synchronously; background long-running commands with `&`)
+7. **Dev server startup** -- detects the framework and starts the appropriate dev server on `DEV_PORT`
+8. **code-server launch** -- starts the browser-based VS Code on port 8080
 
 For fresh workspaces (no `GIT_REPO_URL`), a `WELCOME.md` guide is generated with step-by-step instructions and example prompts.
 
@@ -151,16 +153,16 @@ RUN code-server --install-extension publisher.extension-name
 
 ### Changing AI assistant behavior
 
-Edit the instruction files in `builder-skill/`:
+Edit the instruction files in `resources/`:
 
-- `builder-skill/CLAUDE.md` -- instructions for Claude Code
-- `builder-skill/SKILL.md` -- instructions for OpenCode
+- `resources/CLAUDE.md` -- instructions for Claude Code
+- `resources/SKILL.md` -- instructions for OpenCode
 
 These are copied into the workspace at startup and guide how the AI assistants interact with users.
 
 ### Changing the default tech stack
 
-The default stack for new projects is **Vite + React + Tailwind CSS** (configured in the skill files). Edit `builder-skill/CLAUDE.md` and `builder-skill/SKILL.md` to change this.
+The default stack for new projects is **Vite + React + Tailwind CSS** (configured in the skill files). Edit `resources/CLAUDE.md` and `resources/SKILL.md` to change this.
 
 ## Project Structure
 
@@ -168,9 +170,11 @@ The default stack for new projects is **Vite + React + Tailwind CSS** (configure
 ├── Dockerfile                          # Container image definition
 ├── entrypoint.sh                       # Startup orchestrator (permission setup, git,
 │                                       #   dependency install, dev server, code-server)
-├── builder-skill/
+├── resources/
 │   ├── CLAUDE.md                       # AI instructions for Claude Code
-│   └── SKILL.md                        # AI instructions for OpenCode
+│   ├── SKILL.md                        # AI instructions for OpenCode
+│   ├── WELCOME.md                      # Welcome guide for new builders
+│   └── welcome.html                    # RDE welcome page template (headless mode)
 └── builder-startup-extension/
     ├── package.json                    # VS Code extension manifest
     └── extension.js                    # Auto-opens Claude sidebar + WELCOME.md on startup

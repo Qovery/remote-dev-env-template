@@ -90,9 +90,9 @@ RUN code-server --user-data-dir /home/coder/.local/share/code-server \
     && code-server --user-data-dir /home/coder/.local/share/code-server \
       --install-extension esbenp.prettier-vscode 2>/dev/null || true
 
-# Builder skill templates — CLAUDE.md and SKILL.md for non-technical user support
+# Resources — skill templates (CLAUDE.md, SKILL.md) and welcome page (welcome.html)
 # Copied to /home/coder/project/ at startup by entrypoint.sh (only if not already present)
-COPY builder-skill /opt/builder-skill
+COPY resources /opt/resources
 
 # Builder Startup extension — auto-opens Claude sidebar + Simple Browser preview
 # Must use correct directory naming ({publisher}.{name}-{version}) and register in extensions.json
