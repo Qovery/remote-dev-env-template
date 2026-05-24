@@ -13,6 +13,8 @@
 #   OPENCODE_PORT   — Port for the OpenCode web UI (default: 9100)
 #   DISABLE_CODE_SERVER — Set to "true" to skip code-server and serve an RDE welcome page instead
 #   OPENAI_API_KEY  — API key for Codex (OpenAI's AI coding agent)
+#   GIT_ROOT_PATH   — Subdirectory within the repo where the app lives (default: /).
+#                      Useful for monorepos where the app is not at the repo root.
 #   PRE_START_SCRIPT — Optional shell script to run before the main process starts.
 #                      Runs inline (synchronously). Use & for long-running processes (e.g., web servers).
 #                      Output is logged to /tmp/pre-start-script.log.
@@ -21,6 +23,16 @@ set -e
 PROJECT_DIR="/home/coder/project"
 DEV_PORT="${DEV_PORT:-3100}"
 OPENCODE_PORT="${OPENCODE_PORT:-9100}"
+GIT_ROOT_PATH="${GIT_ROOT_PATH:-/}"
+
+# Derive the effective app directory (for monorepos where the app is in a subdirectory)
+_root_path="${GIT_ROOT_PATH#/}"    # strip leading slash
+_root_path="${_root_path%/}"        # strip trailing slash
+if [[ -n "$_root_path" ]]; then
+  APP_DIR="$PROJECT_DIR/$_root_path"
+else
+  APP_DIR="$PROJECT_DIR"
+fi
 
 # ── Fix /home/coder ownership when a volume is mounted at /home ──────────────
 # Volume mounts override build-time ownership, leaving /home/coder owned by root.
@@ -85,19 +97,19 @@ if [[ -n "${GIT_REPO_URL:-}" ]]; then
     cd "$PROJECT_DIR" && git pull origin "$BRANCH" 2>&1 || echo "WARNING: Git pull failed (non-critical)."
   fi
 
-  # Auto-install dependencies
-  if [[ -f "$PROJECT_DIR/package.json" && ! -d "$PROJECT_DIR/node_modules" ]]; then
+  # Auto-install dependencies (uses APP_DIR — respects GIT_ROOT_PATH for monorepos)
+  if [[ -f "$APP_DIR/package.json" && ! -d "$APP_DIR/node_modules" ]]; then
     echo "Installing Node.js dependencies..."
-    cd "$PROJECT_DIR" && npm install 2>&1 || echo "WARNING: npm install failed (non-critical)."
+    cd "$APP_DIR" && npm install 2>&1 || echo "WARNING: npm install failed (non-critical)."
   fi
 
-  if [[ -f "$PROJECT_DIR/requirements.txt" ]]; then
+  if [[ -f "$APP_DIR/requirements.txt" ]]; then
     echo "Installing Python dependencies..."
-    cd "$PROJECT_DIR" && pip install --user -r requirements.txt 2>&1 || echo "WARNING: pip install failed (non-critical)."
+    cd "$APP_DIR" && pip install --user -r requirements.txt 2>&1 || echo "WARNING: pip install failed (non-critical)."
   fi
 
   # Ensure uvicorn is available for FastAPI projects
-  if [[ -f "$PROJECT_DIR/main.py" ]] && grep -qiE 'from fastapi|import fastapi' "$PROJECT_DIR/main.py" 2>/dev/null; then
+  if [[ -f "$APP_DIR/main.py" ]] && grep -qiE 'from fastapi|import fastapi' "$APP_DIR/main.py" 2>/dev/null; then
     if ! command -v uvicorn &>/dev/null; then
       echo "Installing uvicorn for FastAPI..."
       pip install --user uvicorn 2>&1 || echo "WARNING: uvicorn install failed (non-critical)."
@@ -105,15 +117,15 @@ if [[ -n "${GIT_REPO_URL:-}" ]]; then
   fi
 
   # Ruby/Rails dependencies
-  if [[ -f "$PROJECT_DIR/Gemfile" ]]; then
+  if [[ -f "$APP_DIR/Gemfile" ]]; then
     echo "Installing Ruby dependencies..."
-    cd "$PROJECT_DIR" && bundle install 2>&1 || echo "WARNING: bundle install failed (non-critical)."
+    cd "$APP_DIR" && bundle install 2>&1 || echo "WARNING: bundle install failed (non-critical)."
   fi
 
   # Go modules
-  if [[ -f "$PROJECT_DIR/go.mod" ]]; then
+  if [[ -f "$APP_DIR/go.mod" ]]; then
     echo "Downloading Go modules..."
-    cd "$PROJECT_DIR" && go mod download 2>&1 || echo "WARNING: go mod download failed (non-critical)."
+    cd "$APP_DIR" && go mod download 2>&1 || echo "WARNING: go mod download failed (non-critical)."
   fi
 fi
 
@@ -180,7 +192,7 @@ detect_and_start_devserver() {
   local dev_cmd=""
   local app_type=""
 
-  cd "$PROJECT_DIR"
+  cd "$APP_DIR"
 
   # ── Priority-ordered framework detection ──
   # Specific framework configs take priority over generic package.json scripts,
@@ -261,7 +273,7 @@ detect_and_start_devserver() {
   export PORT="$DEV_PORT"
 
   # Start dev server in background with output logged to file
-  cd "$PROJECT_DIR"
+  cd "$APP_DIR"
   nohup bash -c "$dev_cmd" > /tmp/devserver.log 2>&1 &
   local pid=$!
   echo "$pid" > /tmp/devserver.pid

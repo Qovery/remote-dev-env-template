@@ -117,6 +117,7 @@ This template is designed to be used as a **blueprint** in the [Qovery RDE Porta
 | `GIT_TOKEN` | Git personal access token | -- |
 | `GITHUB_TOKEN` | Fallback GitHub token (used if `GIT_TOKEN` is not set) | -- |
 | `GIT_BRANCH` | Branch to checkout | `main` |
+| `GIT_ROOT_PATH` | Subdirectory within the repo where the app lives (for monorepos) | `/` |
 | `GIT_USER_NAME` | Git author name for commits | -- |
 | `GIT_USER_EMAIL` | Git author email for commits | -- |
 | `DEV_PORT` | Port for the auto-started dev server | `3100` |
