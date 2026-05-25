@@ -164,31 +164,35 @@ RUN mkdir -p /home/coder/.config/code-server \
        > /home/coder/.config/code-server/config.yaml
 
 # Pre-configure VS Code settings for a clean, dark, non-tech-friendly experience
+# Uses printf to write JSON (heredoc is unreliable across Docker build environments)
 RUN mkdir -p /home/coder/.local/share/code-server/User \
-    && cat > /home/coder/.local/share/code-server/User/settings.json << 'SETTINGS'
-{
-  "workbench.startupEditor": "none",
-  "workbench.tips.enabled": false,
-  "workbench.welcomePage.walkthroughs.openOnInstall": false,
-  "workbench.colorTheme": "Default Dark Modern",
-  "workbench.editor.showTabs": "none",
-  "workbench.statusBar.visible": true,
-  "editor.fontSize": 14,
-  "editor.wordWrap": "on",
-  "editor.minimap.enabled": false,
-  "terminal.integrated.defaultProfile.linux": "bash",
-  "terminal.integrated.fontSize": 14,
-  "extensions.autoUpdate": false,
-  "telemetry.telemetryLevel": "off",
-  "task.allowAutomaticTasks": "on",
-  "livePreview.portNumber": 3100,
-  "livePreview.openPreviewTarget": "internalBrowser",
-  "remote.autoForwardPorts": true,
-  "remote.autoForwardPortsSource": "process",
-  "claudeCode.preferredLocation": "sidebar",
-  "claudeCode.hideOnboarding": true
-}
-SETTINGS
+    && printf '%s\n' \
+       '{' \
+       '  "workbench.startupEditor": "none",' \
+       '  "workbench.tips.enabled": false,' \
+       '  "workbench.welcomePage.walkthroughs.openOnInstall": false,' \
+       '  "workbench.colorTheme": "Default Dark Modern",' \
+       '  "workbench.editor.showTabs": "none",' \
+       '  "workbench.statusBar.visible": true,' \
+       '  "editor.fontSize": 14,' \
+       '  "editor.wordWrap": "on",' \
+       '  "editor.minimap.enabled": false,' \
+       '  "terminal.integrated.defaultProfile.linux": "bash",' \
+       '  "terminal.integrated.profiles.linux": {' \
+       '    "bash": { "path": "/bin/bash", "args": [] }' \
+       '  },' \
+       '  "terminal.integrated.fontSize": 14,' \
+       '  "extensions.autoUpdate": false,' \
+       '  "telemetry.telemetryLevel": "off",' \
+       '  "task.allowAutomaticTasks": "on",' \
+       '  "livePreview.portNumber": 3100,' \
+       '  "livePreview.openPreviewTarget": "internalBrowser",' \
+       '  "remote.autoForwardPorts": true,' \
+       '  "remote.autoForwardPortsSource": "process",' \
+       '  "claudeCode.preferredLocation": "sidebar",' \
+       '  "claudeCode.hideOnboarding": true' \
+       '}' \
+       > /home/coder/.local/share/code-server/User/settings.json
 
 # ── Switch to coder user for all user-space installations ──────────────
 # Fix ownership: steps above created dirs under /home/coder as root
