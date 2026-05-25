@@ -95,7 +95,8 @@ RUN printf '%s\n' \
   '  export ZELLIJ_CONFIG_FILE=/etc/zellij/config.kdl' \
   '  exec zellij attach --create "${_session_name}"' \
   'fi' \
-  > /etc/profile.d/rde-zellij.sh
+  > /etc/profile.d/rde-zellij.sh \
+  && echo '. /etc/profile.d/rde-zellij.sh' >> /etc/bash.bashrc
 
 # Qovery CLI
 RUN curl -s https://get.qovery.com | bash
