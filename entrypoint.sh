@@ -486,6 +486,24 @@ ensure_gitignore() {
 
 ensure_gitignore
 
+# ── Start persistent Zellij session for Claude CLI ───────────────────────────
+# Starts the rde-claude session (detached) running the claude CLI before
+# code-server launches. The session persists across network disconnects.
+# Shell tab sessions (rde-shell-N) are created lazily via /etc/profile.d/rde-zellij.sh.
+start_zellij_sessions() {
+  mkdir -p /home/coder/.rde-sessions
+
+  # Only start rde-claude if it doesn't already exist (idempotent on container restart)
+  if ! ZELLIJ_CONFIG_FILE=/etc/zellij/config.kdl zellij list-sessions 2>/dev/null | grep -q "^rde-claude"; then
+    ZELLIJ_CONFIG_FILE=/etc/zellij/config.kdl \
+      zellij --session rde-claude -- bash -c 'claude' \
+      > /tmp/zellij-claude.log 2>&1 &
+    echo "Started Zellij session: rde-claude (claude CLI)"
+  else
+    echo "Zellij session rde-claude already exists — skipping."
+  fi
+}
+
 # ── RDE welcome page (served when code-server is disabled) ───────────────────
 start_welcome_server() {
   local rde_dir="/tmp/rde-welcome"
@@ -526,6 +544,9 @@ start_welcome_server() {
   echo "Starting OpenCode web UI on port ${OPENCODE_PORT}..."
   (cd "$PROJECT_DIR" && opencode web --port "${OPENCODE_PORT}" >> /tmp/opencode-web.log 2>&1) &
 
+  # Start persistent Zellij sessions
+  start_zellij_sessions
+
   echo "Code-server disabled (DISABLE_CODE_SERVER=true)."
   echo "Serving RDE welcome page on port 8080..."
   cd "$rde_dir"
@@ -539,6 +560,9 @@ else
   # ── Start OpenCode web UI ───────────────────────────────────────────────────
   echo "Starting OpenCode web UI on port ${OPENCODE_PORT}..."
   (cd "$PROJECT_DIR" && opencode web --port "${OPENCODE_PORT}" >> /tmp/opencode-web.log 2>&1) &
+
+  # Start persistent Zellij sessions
+  start_zellij_sessions
 
   echo "Starting Builder Workspace..."
   exec code-server --host 0.0.0.0 --port 8080 "$PROJECT_DIR"
