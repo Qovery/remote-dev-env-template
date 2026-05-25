@@ -66,39 +66,6 @@ RUN mkdir -p /etc/zellij \
     && printf 'simplified_ui true\npane_frames false\ndefault_layout "compact"\ndefault_shell "/bin/bash"\n' \
        > /etc/zellij/config.kdl
 
-# Zellij auto-attach — sourced by every interactive bash session
-# Wraps each terminal tab in a named Zellij session (rde-shell-N).
-# On reconnect after a network drop, reattaches to the same session via PPID lookup.
-# Uses printf to write the script (heredoc is unreliable across Docker build environments).
-RUN printf '%s\n' \
-  '# RDE session persistence via Zellij' \
-  '# Transparently wraps each terminal tab in a named session so processes survive' \
-  '# network drops. Uses PPID as a stable key — code-server keeps the same parent' \
-  '# process for a terminal tab across reconnects.' \
-  'if [ -z "${ZELLIJ}" ] && [ -t 1 ]; then' \
-  '  _sessions_dir="${HOME}/.rde-sessions"' \
-  '  _counter_file="${HOME}/.rde-tab-counter"' \
-  '  mkdir -p "${_sessions_dir}"' \
-  '  _session_file="${_sessions_dir}/${PPID}"' \
-  '  if [ -f "${_session_file}" ]; then' \
-  '    _session_name=$(cat "${_session_file}")' \
-  '  else' \
-  '    (' \
-  '      flock -x 9' \
-  '      _n=$(cat "${_counter_file}" 2>/dev/null || echo 0)' \
-  '      _n=$(( _n + 1 ))' \
-  '      echo "${_n}" > "${_counter_file}"' \
-  '      echo "rde-shell-${_n}" > "${_session_file}"' \
-  '    ) 9>"${_counter_file}.lock"' \
-  '    _session_name=$(cat "${_session_file}")' \
-  '  fi' \
-  '  trap '"'"'rm -f "${_sessions_dir}/${PPID}"'"'"' EXIT' \
-  '  export ZELLIJ_CONFIG_FILE=/etc/zellij/config.kdl' \
-  '  exec zellij attach --create "${_session_name}"' \
-  'fi' \
-  > /etc/profile.d/rde-zellij.sh \
-  && echo '. /etc/profile.d/rde-zellij.sh' >> /etc/bash.bashrc
-
 # Qovery CLI
 RUN curl -s https://get.qovery.com | bash
 
