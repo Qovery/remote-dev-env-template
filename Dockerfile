@@ -62,8 +62,9 @@ RUN cd /tmp \
 
 # Zellij config — transparent mode (no status bar, no pane frames, no UI chrome)
 # default_shell ensures all Zellij panes use bash regardless of $SHELL env var
+ENV ZELLIJ_CONFIG_FILE=/etc/zellij/config.kdl
 RUN mkdir -p /etc/zellij \
-    && printf 'simplified_ui true\npane_frames false\ndefault_layout "compact"\ndefault_shell "/bin/bash"\n' \
+    && printf 'simplified_ui true\npane_frames false\ndefault_layout "compact"\ndefault_shell "/bin/bash"\nshow_release_notes false\nshow_startup_tips false\n' \
        > /etc/zellij/config.kdl
 
 # Qovery CLI
