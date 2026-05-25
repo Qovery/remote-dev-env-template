@@ -61,8 +61,9 @@ RUN cd /tmp \
     && rm -rf zellij zellij.tar.gz
 
 # Zellij config — transparent mode (no status bar, no pane frames, no UI chrome)
+# default_shell ensures all Zellij panes use bash regardless of $SHELL env var
 RUN mkdir -p /etc/zellij \
-    && printf 'simplified_ui true\npane_frames false\ndefault_layout "compact"\n' \
+    && printf 'simplified_ui true\npane_frames false\ndefault_layout "compact"\ndefault_shell "/bin/bash"\n' \
        > /etc/zellij/config.kdl
 
 # Zellij auto-attach — sourced by every interactive bash session

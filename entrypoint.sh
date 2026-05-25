@@ -495,7 +495,7 @@ start_zellij_sessions() {
 
   # Only start rde-claude if it doesn't already exist (idempotent on container restart)
   if ! ZELLIJ_CONFIG_FILE=/etc/zellij/config.kdl zellij list-sessions 2>/dev/null | grep -q "^rde-claude"; then
-    ZELLIJ_CONFIG_FILE=/etc/zellij/config.kdl \
+    SHELL=/bin/bash ZELLIJ_CONFIG_FILE=/etc/zellij/config.kdl \
       zellij --session rde-claude -- bash -c 'claude' \
       > /tmp/zellij-claude.log 2>&1 &
     echo "Started Zellij session: rde-claude (claude CLI)"
