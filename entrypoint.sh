@@ -26,6 +26,16 @@ DEV_PORT="${DEV_PORT:-3100}"
 OPENCODE_PORT="${OPENCODE_PORT:-9100}"
 GIT_ROOT_PATH="${GIT_ROOT_PATH:-/}"
 
+# Validate ports are numeric — prevents sed delimiter injection in welcome page
+if ! [[ "${DEV_PORT}" =~ ^[0-9]+$ ]]; then
+  echo "WARNING: DEV_PORT='${DEV_PORT}' is not a valid port — using default 3100" >&2
+  DEV_PORT=3100
+fi
+if ! [[ "${OPENCODE_PORT}" =~ ^[0-9]+$ ]]; then
+  echo "WARNING: OPENCODE_PORT='${OPENCODE_PORT}' is not a valid port — using default 9100" >&2
+  OPENCODE_PORT=9100
+fi
+
 # Derive the effective app directory (for monorepos where the app is in a subdirectory)
 _root_path="${GIT_ROOT_PATH#/}"    # strip leading slash
 _root_path="${_root_path%/}"        # strip trailing slash
@@ -75,8 +85,15 @@ detect_git_username() {
 TOKEN="${GIT_TOKEN:-${GITHUB_TOKEN:-}}"
 if [[ -n "$TOKEN" ]]; then
   GIT_USERNAME=$(detect_git_username "${GIT_REPO_URL:-}")
-  git config --global credential.helper \
-    '!f() { echo "username='"$GIT_USERNAME"'"; echo "password='"$TOKEN"'"; }; f'
+  # Write the helper as a standalone script so TOKEN is never interpolated into
+  # shell syntax — avoids injection if TOKEN contains ", ;, $() or backticks.
+  # The script reads credentials from env vars at git invocation time.
+  export GIT_CREDENTIAL_USERNAME="$GIT_USERNAME"
+  export GIT_CREDENTIAL_TOKEN="$TOKEN"
+  printf '#!/bin/bash\nprintf "username=%%s\\npassword=%%s\\n" "$GIT_CREDENTIAL_USERNAME" "$GIT_CREDENTIAL_TOKEN"\n' \
+    > /tmp/git-cred-helper.sh
+  chmod 700 /tmp/git-cred-helper.sh
+  git config --global credential.helper '/tmp/git-cred-helper.sh'
 fi
 
 # Git user identity (for commits)
@@ -294,9 +311,102 @@ if [[ -n "${PRE_START_SCRIPT:-}" ]]; then
   local_script="/tmp/pre-start-script.sh"
   printf '%s\n' "$PRE_START_SCRIPT" > "$local_script"
   chmod +x "$local_script"
-  bash "$local_script" >> /tmp/pre-start-script.log 2>&1
+  # Tee to both log file and stdout so failures are visible in `docker logs`.
+  # PIPESTATUS[0] captures bash's exit code — tee always exits 0, so set -e
+  # won't trigger here; we check manually and propagate the real exit code.
+  bash "$local_script" 2>&1 | tee /tmp/pre-start-script.log
+  _pre_exit="${PIPESTATUS[0]}"
+  if [[ "$_pre_exit" -ne 0 ]]; then
+    echo "ERROR: PRE_START_SCRIPT failed (exit $_pre_exit) — see /tmp/pre-start-script.log" >&2
+    exit "$_pre_exit"
+  fi
   echo "PRE_START_SCRIPT completed (log: /tmp/pre-start-script.log)"
 fi
+
+# ── Detect project type and dev server command ────────────────────────────────
+# Sets _DETECTED_APP_TYPE and _DETECTED_DEV_CMD in the caller's scope.
+# $1 — directory to probe (defaults to $APP_DIR)
+# $2 — port for frameworks that need explicit binding (defaults to $DEV_PORT)
+#
+# Priority order: specific framework configs first (Vite/Next/Nuxt), then
+# generic package.json scripts, then language-specific entry points.
+# npm run preview is included last for frameworks without a dev script.
+detect_dev_cmd() {
+  local dir="${1:-$APP_DIR}"
+  local port="${2:-$DEV_PORT}"
+  _DETECTED_APP_TYPE=""
+  _DETECTED_DEV_CMD=""
+
+  pushd "$dir" >/dev/null 2>&1 || return
+
+  # 1. Vite (React, Vue, Svelte, etc.)
+  if compgen -G "vite.config.*" >/dev/null 2>&1; then
+    _DETECTED_APP_TYPE="Vite"
+    _DETECTED_DEV_CMD="npx vite --host 0.0.0.0 --port $port"
+
+  # 2. Next.js
+  elif compgen -G "next.config.*" >/dev/null 2>&1; then
+    _DETECTED_APP_TYPE="Next.js"
+    _DETECTED_DEV_CMD="npx next dev --hostname 0.0.0.0 --port $port"
+
+  # 3. Nuxt
+  elif compgen -G "nuxt.config.*" >/dev/null 2>&1; then
+    _DETECTED_APP_TYPE="Nuxt"
+    _DETECTED_DEV_CMD="npx nuxt dev --host 0.0.0.0 --port $port"
+
+  # 4. Node.js — generic package.json scripts (dev > start > serve > preview)
+  elif [[ -f package.json ]]; then
+    if jq -e '.scripts.dev' package.json >/dev/null 2>&1; then
+      _DETECTED_APP_TYPE="Node.js (npm run dev)"
+      _DETECTED_DEV_CMD="npm run dev"
+    elif jq -e '.scripts.start' package.json >/dev/null 2>&1; then
+      _DETECTED_APP_TYPE="Node.js (npm start)"
+      _DETECTED_DEV_CMD="npm start"
+    elif jq -e '.scripts.serve' package.json >/dev/null 2>&1; then
+      _DETECTED_APP_TYPE="Node.js (npm run serve)"
+      _DETECTED_DEV_CMD="npm run serve"
+    elif jq -e '.scripts.preview' package.json >/dev/null 2>&1; then
+      _DETECTED_APP_TYPE="Node.js (npm run preview)"
+      _DETECTED_DEV_CMD="npm run preview"
+    fi
+
+  # 5. Django
+  elif [[ -f manage.py ]]; then
+    _DETECTED_APP_TYPE="Django"
+    _DETECTED_DEV_CMD="python3 manage.py runserver 0.0.0.0:$port"
+
+  # 6. Flask
+  elif [[ -f app.py ]] && grep -qiE 'from flask|import flask' app.py 2>/dev/null; then
+    _DETECTED_APP_TYPE="Flask"
+    _DETECTED_DEV_CMD="flask run --host 0.0.0.0 --port $port --reload"
+
+  elif [[ -f wsgi.py ]] && grep -qiE 'from flask|import flask' wsgi.py 2>/dev/null; then
+    _DETECTED_APP_TYPE="Flask"
+    _DETECTED_DEV_CMD="FLASK_APP=wsgi.py flask run --host 0.0.0.0 --port $port --reload"
+
+  # 7. FastAPI
+  elif [[ -f main.py ]] && grep -qiE 'from fastapi|import fastapi' main.py 2>/dev/null; then
+    _DETECTED_APP_TYPE="FastAPI"
+    _DETECTED_DEV_CMD="uvicorn main:app --host 0.0.0.0 --port $port --reload"
+
+  # 8. Ruby on Rails
+  elif [[ -f Gemfile ]] && grep -q 'rails' Gemfile 2>/dev/null; then
+    _DETECTED_APP_TYPE="Ruby on Rails"
+    _DETECTED_DEV_CMD="bundle exec rails server -b 0.0.0.0 -p $port"
+
+  # 9. Go
+  elif [[ -f go.mod ]]; then
+    _DETECTED_APP_TYPE="Go"
+    _DETECTED_DEV_CMD="go run ."
+
+  # 10. Static HTML (fallback — serve with npx serve)
+  elif [[ -f index.html ]]; then
+    _DETECTED_APP_TYPE="Static HTML"
+    _DETECTED_DEV_CMD="npx serve -l $port"
+  fi
+
+  popd >/dev/null 2>&1
+}
 
 # ── Auto-detect app type and start dev server with hot-reload ─────────────────
 detect_and_start_devserver() {
@@ -304,77 +414,9 @@ detect_and_start_devserver() {
     return
   fi
 
-  local dev_cmd=""
-  local app_type=""
-
-  cd "$APP_DIR"
-
-  # ── Priority-ordered framework detection ──
-  # Specific framework configs take priority over generic package.json scripts,
-  # because we can pass explicit --host and --port flags to them.
-
-  # 1. Vite (React, Vue, Svelte, etc.)
-  if compgen -G "vite.config.*" >/dev/null 2>&1; then
-    app_type="Vite"
-    dev_cmd="npx vite --host 0.0.0.0 --port $DEV_PORT"
-
-  # 2. Next.js
-  elif compgen -G "next.config.*" >/dev/null 2>&1; then
-    app_type="Next.js"
-    dev_cmd="npx next dev --hostname 0.0.0.0 --port $DEV_PORT"
-
-  # 3. Nuxt
-  elif compgen -G "nuxt.config.*" >/dev/null 2>&1; then
-    app_type="Nuxt"
-    dev_cmd="npx nuxt dev --host 0.0.0.0 --port $DEV_PORT"
-
-  # 4. Node.js — generic package.json scripts (dev > start > serve)
-  elif [[ -f package.json ]]; then
-    if jq -e '.scripts.dev' package.json >/dev/null 2>&1; then
-      app_type="Node.js (npm run dev)"
-      dev_cmd="npm run dev"
-    elif jq -e '.scripts.start' package.json >/dev/null 2>&1; then
-      app_type="Node.js (npm start)"
-      dev_cmd="npm start"
-    elif jq -e '.scripts.serve' package.json >/dev/null 2>&1; then
-      app_type="Node.js (npm run serve)"
-      dev_cmd="npm run serve"
-    fi
-
-  # 5. Django
-  elif [[ -f manage.py ]]; then
-    app_type="Django"
-    dev_cmd="python3 manage.py runserver 0.0.0.0:$DEV_PORT"
-
-  # 6. Flask
-  elif [[ -f app.py ]] && grep -qiE 'from flask|import flask' app.py 2>/dev/null; then
-    app_type="Flask"
-    dev_cmd="flask run --host 0.0.0.0 --port $DEV_PORT --reload"
-
-  elif [[ -f wsgi.py ]] && grep -qiE 'from flask|import flask' wsgi.py 2>/dev/null; then
-    app_type="Flask"
-    dev_cmd="FLASK_APP=wsgi.py flask run --host 0.0.0.0 --port $DEV_PORT --reload"
-
-  # 7. FastAPI
-  elif [[ -f main.py ]] && grep -qiE 'from fastapi|import fastapi' main.py 2>/dev/null; then
-    app_type="FastAPI"
-    dev_cmd="uvicorn main:app --host 0.0.0.0 --port $DEV_PORT --reload"
-
-  # 8. Ruby on Rails
-  elif [[ -f Gemfile ]] && grep -q 'rails' Gemfile 2>/dev/null; then
-    app_type="Ruby on Rails"
-    dev_cmd="bundle exec rails server -b 0.0.0.0 -p $DEV_PORT"
-
-  # 9. Go
-  elif [[ -f go.mod ]]; then
-    app_type="Go"
-    dev_cmd="go run ."
-
-  # 10. Static HTML (fallback — serve with npx serve)
-  elif [[ -f index.html ]]; then
-    app_type="Static HTML"
-    dev_cmd="npx serve -l $DEV_PORT"
-  fi
+  detect_dev_cmd "$APP_DIR" "$DEV_PORT"
+  local dev_cmd="$_DETECTED_DEV_CMD"
+  local app_type="$_DETECTED_APP_TYPE"
 
   if [[ -z "$dev_cmd" ]]; then
     echo "No dev server detected — skipping auto-start."
@@ -402,23 +444,8 @@ detect_and_start_devserver
 # Only used for fresh workspaces (no GIT_REPO_URL) — cloned repos use the
 # background dev server started above instead.
 generate_tasks_json() {
-  local run_cmd=""
-
-  if [[ -f "$PROJECT_DIR/package.json" ]]; then
-    if jq -e '.scripts.dev' "$PROJECT_DIR/package.json" >/dev/null 2>&1; then
-      run_cmd="npm run dev"
-    elif jq -e '.scripts.start' "$PROJECT_DIR/package.json" >/dev/null 2>&1; then
-      run_cmd="npm start"
-    elif jq -e '.scripts.serve' "$PROJECT_DIR/package.json" >/dev/null 2>&1; then
-      run_cmd="npm run serve"
-    elif jq -e '.scripts.preview' "$PROJECT_DIR/package.json" >/dev/null 2>&1; then
-      run_cmd="npm run preview"
-    fi
-  elif [[ -f "$PROJECT_DIR/requirements.txt" ]] || [[ -f "$PROJECT_DIR/manage.py" ]]; then
-    if [[ -f "$PROJECT_DIR/manage.py" ]]; then
-      run_cmd="python3 manage.py runserver 0.0.0.0:$DEV_PORT"
-    fi
-  fi
+  detect_dev_cmd "$PROJECT_DIR" "$DEV_PORT"
+  local run_cmd="$_DETECTED_DEV_CMD"
 
   if [[ -n "$run_cmd" && ! -f "$PROJECT_DIR/.vscode/tasks.json" ]]; then
     mkdir -p "$PROJECT_DIR/.vscode"
