@@ -12,24 +12,30 @@
 # Set OPENAI_API_KEY so Codex can authenticate automatically.
 FROM codercom/code-server:4.118.0
 
+# Use bash with pipefail for all RUN instructions — pipe failures are caught, not silently ignored
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# NOTE: root is required for system package installation.
+# The container drops to `coder` at line ~175 and again the entrypoint handles
+# re-dropping after fixing volume ownership at runtime (see entrypoint.sh).
 USER root
 
 # Node.js 22 LTS (must run before the main apt-get so the NodeSource repo is available)
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+# Download setup script to /tmp first — avoids piping remote code directly into bash
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh \
+    && bash /tmp/nodesource_setup.sh \
+    && rm /tmp/nodesource_setup.sh
 
 # System dependencies + language runtimes + developer tools (single layer)
+# core utils / python / ruby+build-tools / nodejs (NodeSource) / search tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Core utilities
-    curl git jq make unzip xz-utils ca-certificates wget tree htop \
-    # Python
+    curl git jq make unzip xz-utils ca-certificates tree \
     python3 python3-pip python3-venv \
-    # Ruby + native extension build tools
     ruby ruby-dev build-essential \
-    # Node.js (from NodeSource repo above)
     nodejs \
-    # Search & navigation
     ripgrep fzf \
-    && gem install bundler --no-document \
+    && gem install bundler:2.5.23 --no-document \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Go 1.24
@@ -42,23 +48,25 @@ ENV PATH="/usr/local/go/bin:/home/coder/go/bin:${PATH}"
 # GitHub CLI (pinned + checksum verified)
 ARG GH_VERSION=2.74.1
 ARG GH_SHA256=d62406233a42e0dc577dcead8d7bafabcc4c548d9c3a6da761c6709bc8f4b373
-RUN cd /tmp \
-    && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" -o gh.tar.gz \
-    && echo "${GH_SHA256}  gh.tar.gz" | sha256sum -c - \
-    && tar -xzf gh.tar.gz \
-    && install "gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh \
-    && rm -rf gh.tar.gz "gh_${GH_VERSION}_linux_amd64"
+RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+        -o /tmp/gh.tar.gz \
+    && echo "${GH_SHA256}  /tmp/gh.tar.gz" > /tmp/gh.sha256 \
+    && sha256sum -c /tmp/gh.sha256 \
+    && tar -xzf /tmp/gh.tar.gz -C /tmp \
+    && install "/tmp/gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh \
+    && rm -rf /tmp/gh.tar.gz /tmp/gh.sha256 "/tmp/gh_${GH_VERSION}_linux_amd64"
 
 # Zellij — terminal multiplexer for session persistence across network disconnects
 # Each terminal tab gets its own named Zellij session; processes survive browser reconnects.
 ARG ZELLIJ_VERSION=0.44.3
 ARG ZELLIJ_SHA256=0f7c346788627f506c0a28296517768633cff24fc822a739f8264b640ecad751
-RUN cd /tmp \
-    && curl -fsSL "https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}/zellij-x86_64-unknown-linux-musl.tar.gz" -o zellij.tar.gz \
-    && echo "${ZELLIJ_SHA256}  zellij.tar.gz" | sha256sum -c - \
-    && tar -xzf zellij.tar.gz \
-    && install -m 755 zellij /usr/local/bin/zellij \
-    && rm -rf zellij zellij.tar.gz
+RUN curl -fsSL "https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}/zellij-x86_64-unknown-linux-musl.tar.gz" \
+        -o /tmp/zellij.tar.gz \
+    && echo "${ZELLIJ_SHA256}  /tmp/zellij.tar.gz" > /tmp/zellij.sha256 \
+    && sha256sum -c /tmp/zellij.sha256 \
+    && tar -xzf /tmp/zellij.tar.gz -C /tmp \
+    && install -m 755 /tmp/zellij /usr/local/bin/zellij \
+    && rm -rf /tmp/zellij /tmp/zellij.tar.gz /tmp/zellij.sha256
 
 # Zellij config — transparent mode (no status bar, no pane frames, no UI chrome)
 # default_shell ensures all Zellij panes use bash regardless of $SHELL env var
@@ -70,14 +78,20 @@ RUN mkdir -p /etc/zellij \
 # ttyd — web-based terminal server for iframe embedding
 ARG TTYD_VERSION=1.7.7
 ARG TTYD_SHA256=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
-RUN curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" -o /usr/local/bin/ttyd \
-    && echo "${TTYD_SHA256}  /usr/local/bin/ttyd" | sha256sum -c - \
+RUN curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" \
+        -o /usr/local/bin/ttyd \
+    && echo "${TTYD_SHA256}  /usr/local/bin/ttyd" > /tmp/ttyd.sha256 \
+    && sha256sum -c /tmp/ttyd.sha256 \
+    && rm /tmp/ttyd.sha256 \
     && chmod +x /usr/local/bin/ttyd
 
-# Qovery CLI
-RUN curl -s https://get.qovery.com | bash
+# Qovery CLI — download install script to /tmp first, don't pipe directly into bash
+RUN curl -fsSL https://get.qovery.com -o /tmp/install-qovery.sh \
+    && bash /tmp/install-qovery.sh \
+    && rm /tmp/install-qovery.sh
 
 # AI coding agents (single layer + cache cleanup)
+# Note: `npm install -g` is correct here — `npm ci` is for local project installs only
 ARG CLAUDE_CODE_VERSION=2.1.129
 RUN npm install -g \
     @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
@@ -86,7 +100,11 @@ RUN npm install -g \
     && npm cache clean --force
 
 # RTK — reduces LLM token consumption by 60-90% on shell commands
-RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh \
+# Download install script to /tmp first, don't pipe directly into sh
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh \
+        -o /tmp/install-rtk.sh \
+    && sh /tmp/install-rtk.sh \
+    && rm /tmp/install-rtk.sh \
     && ln -sf /root/.local/bin/rtk /usr/local/bin/rtk
 
 # Patch: disable navigator polyfill that crashes Claude Code extension on Node 22
@@ -180,16 +198,18 @@ RUN mkdir -p /home/coder/.config/opencode/skills \
     /home/coder/.config/opencode/commands \
     /home/coder/.claude/skills
 
-# Qovery Skills — installed as coder so OpenCode and Claude Code can discover them
-RUN curl -fsSL https://skill.qovery.com/install.sh | bash
+# Qovery Skills — download install script to /tmp first, don't pipe directly into bash
+RUN curl -fsSL https://skill.qovery.com/install.sh -o /tmp/install-skills.sh \
+    && bash /tmp/install-skills.sh \
+    && rm /tmp/install-skills.sh
 
 # Initialize RTK hooks for Claude Code and OpenCode (auto-rewrite shell commands)
 RUN rtk init -g 2>/dev/null || true \
     && rtk init -g --opencode 2>/dev/null || true
 
 # ── Entrypoint: clone git repo (if configured), install deps, start code-server
-# Start as root so the entrypoint can fix /home/coder ownership when a volume
-# is mounted at /home (the entrypoint drops to the coder user after fixing).
+# NOTE: root is required so the entrypoint can fix /home/coder ownership when a
+# volume is mounted at /home. The entrypoint drops to the coder user after fixing.
 USER root
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
@@ -197,5 +217,9 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 WORKDIR /home/coder/project
 
 EXPOSE 8080 9100
+
+# Health check: verify code-server is accepting HTTP connections
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/ || exit 1
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
