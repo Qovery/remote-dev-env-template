@@ -27,18 +27,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh
     && rm /tmp/nodesource_setup.sh
 
 # System dependencies + language runtimes + developer tools (single layer)
+# core utils / python / ruby+build-tools / nodejs (NodeSource) / search tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Core utilities
-    curl git jq make unzip xz-utils ca-certificates wget tree htop \
-    # Python
+    curl git jq make unzip xz-utils ca-certificates tree \
     python3 python3-pip python3-venv \
-    # Ruby + native extension build tools
     ruby ruby-dev build-essential \
-    # Node.js (from NodeSource repo above)
     nodejs \
-    # Search & navigation
     ripgrep fzf \
-    && gem install bundler --no-document \
+    && gem install bundler:2.5.23 --no-document \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -54,10 +50,11 @@ ARG GH_VERSION=2.74.1
 ARG GH_SHA256=d62406233a42e0dc577dcead8d7bafabcc4c548d9c3a6da761c6709bc8f4b373
 RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
         -o /tmp/gh.tar.gz \
-    && echo "${GH_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
+    && echo "${GH_SHA256}  /tmp/gh.tar.gz" > /tmp/gh.sha256 \
+    && sha256sum -c /tmp/gh.sha256 \
     && tar -xzf /tmp/gh.tar.gz -C /tmp \
     && install "/tmp/gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh \
-    && rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_amd64"
+    && rm -rf /tmp/gh.tar.gz /tmp/gh.sha256 "/tmp/gh_${GH_VERSION}_linux_amd64"
 
 # Zellij — terminal multiplexer for session persistence across network disconnects
 # Each terminal tab gets its own named Zellij session; processes survive browser reconnects.
@@ -65,10 +62,11 @@ ARG ZELLIJ_VERSION=0.44.3
 ARG ZELLIJ_SHA256=0f7c346788627f506c0a28296517768633cff24fc822a739f8264b640ecad751
 RUN curl -fsSL "https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}/zellij-x86_64-unknown-linux-musl.tar.gz" \
         -o /tmp/zellij.tar.gz \
-    && echo "${ZELLIJ_SHA256}  /tmp/zellij.tar.gz" | sha256sum -c - \
+    && echo "${ZELLIJ_SHA256}  /tmp/zellij.tar.gz" > /tmp/zellij.sha256 \
+    && sha256sum -c /tmp/zellij.sha256 \
     && tar -xzf /tmp/zellij.tar.gz -C /tmp \
     && install -m 755 /tmp/zellij /usr/local/bin/zellij \
-    && rm -rf /tmp/zellij /tmp/zellij.tar.gz
+    && rm -rf /tmp/zellij /tmp/zellij.tar.gz /tmp/zellij.sha256
 
 # Zellij config — transparent mode (no status bar, no pane frames, no UI chrome)
 # default_shell ensures all Zellij panes use bash regardless of $SHELL env var
@@ -82,7 +80,9 @@ ARG TTYD_VERSION=1.7.7
 ARG TTYD_SHA256=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
 RUN curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" \
         -o /usr/local/bin/ttyd \
-    && echo "${TTYD_SHA256}  /usr/local/bin/ttyd" | sha256sum -c - \
+    && echo "${TTYD_SHA256}  /usr/local/bin/ttyd" > /tmp/ttyd.sha256 \
+    && sha256sum -c /tmp/ttyd.sha256 \
+    && rm /tmp/ttyd.sha256 \
     && chmod +x /usr/local/bin/ttyd
 
 # Qovery CLI — download install script to /tmp first, don't pipe directly into bash
