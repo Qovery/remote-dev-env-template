@@ -63,6 +63,27 @@ fi
 # ── Clear stale workspace state to prevent webview deserialization crashes ────
 rm -rf /home/coder/.local/share/code-server/User/workspaceStorage/*/state.vscdb 2>/dev/null
 
+# ── Handle HTTP_PROXY during startup ─────────────────────────────────────────
+# When Agent Access Governance (AAG) is enabled, the Qovery environment has
+# HTTP_PROXY/HTTPS_PROXY pointing to a proxy process on localhost:8877. That
+# proxy is bootstrapped by the BFF portal via execInPod() AFTER the container
+# starts — so it's not running yet when entrypoint.sh executes. Temporarily
+# unset the proxy vars for startup operations (git clone, npm install, etc.)
+# and restore them before launching the main process, so the proxy (once
+# bootstrapped by the BFF) will be used by tools like Claude Code and Codex.
+_ORIG_HTTP_PROXY="${HTTP_PROXY:-}"
+_ORIG_HTTPS_PROXY="${HTTPS_PROXY:-}"
+_ORIG_NO_PROXY="${NO_PROXY:-}"
+if [[ -n "$HTTP_PROXY" ]]; then
+  # Quick connectivity check — if the proxy is already running (container
+  # restart where the proxy survived), keep the vars. Otherwise unset them
+  # so startup operations don't hang or fail with ECONNREFUSED.
+  if ! node -e "const n=require('net');const s=n.createConnection(8877,'127.0.0.1');s.once('connect',()=>{process.exit(0)});s.once('error',()=>process.exit(1));setTimeout(()=>process.exit(1),1000)" 2>/dev/null; then
+    echo "[entrypoint] HTTP_PROXY is set (localhost:8877) but proxy is not running yet — unsetting for startup"
+    unset HTTP_PROXY HTTPS_PROXY NO_PROXY
+  fi
+fi
+
 # ── Detect git provider from URL and return the correct credential username ──
 detect_git_username() {
   local url="$1"
@@ -610,6 +631,19 @@ start_welcome_server() {
   cd "$rde_dir"
   exec python3 -m http.server 8080 --bind 0.0.0.0
 }
+
+# ── Restore proxy env vars before launching main process ─────────────────────
+# The BFF portal will bootstrap the proxy via execInPod() once the user
+# connects. By restoring the vars now, any process started after this point
+# (code-server, opencode, Claude Code, etc.) will route through the proxy
+# once it's running. If the proxy never starts, the vars will be set but
+# harmless (outbound HTTP will fail the same way it would without them).
+if [[ -n "$_ORIG_HTTP_PROXY" ]]; then
+  export HTTP_PROXY="$_ORIG_HTTP_PROXY"
+  export HTTPS_PROXY="$_ORIG_HTTPS_PROXY"
+  export NO_PROXY="$_ORIG_NO_PROXY"
+  echo "[entrypoint] Restored HTTP_PROXY/HTTPS_PROXY for main process"
+fi
 
 # ── Start code-server (or RDE welcome page in headless mode) ─────────────────
 if [[ "${DISABLE_CODE_SERVER:-}" == "true" ]]; then
